@@ -1,3 +1,113 @@
+package com.starkmesh.app
+
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.util.Locale
+import java.util.concurrent.TimeUnit
+import kotlin.math.*
+
+data class OrbitSatNode(
+    val id: String,
+    val name: String,
+    val orbitType: String,
+    val lat: Double,
+    val lon: Double,
+    val altKm: Double,
+    val velKmh: Double,
+    val inclinationDeg: Double,
+    val phaseOffsetDeg: Double,
+    val color: Color
+)
+
+@Composable
+fun SatelliteAccessLiveView(
+    persona: String,
+    onBackToHud: () -> Unit
+) {
+    val accent = if (persona == "friday") Color(0xFFFF5E8E) else Color(0xFF00E5FF)
+    var selectedId by remember { mutableStateOf("ISS") }
+    var tickSec by remember { mutableDoubleStateOf(0.0) }
+    var issLive by remember { mutableStateOf(Triple(22.98, 88.37, 408.0)) }
+    var issVel by remember { mutableDoubleStateOf(27600.0) }
+    var issVis by remember { mutableStateOf("SYNCING") }
+
+    val http = remember {
+        OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            tickSec += 1.0
+            if (tickSec.toInt() % 8 == 1) {
+                withContext(Dispatchers.IO) {
+                    try {
+                        val req = Request.Builder().url("https://api.wheretheiss.at/v1/satellites/25544").build()
+                        http.newCall(req).execute().use { r ->
+                            if (r.isSuccessful) {
+                                val j = JSONObject(r.body?.string() ?: "{}")
+                                issLive = Triple(
+                                    j.optDouble("latitude", issLive.first),
+                                    j.optDouble("longitude", issLive.second),
+                                    j.optDouble("altitude", 408.0)
+                                )
+                                issVel = j.optDouble("velocity", 27600.0)
+                                issVis = j.optString("visibility", "DAYLIGHT").uppercase()
+                            }
+                        }
+                    } catch (_: Exception) {
+                        issVis = "PROPAGATED"
+                    }
+                }
+            }
+            delay(1000L)
+        }
+    }
+
+    val satellites = remember(tickSec, issLive, issVel) {
+        val t = tickSec
+        val (iLat, iLon, iAlt) = issLive
+        listOf(
+            OrbitSatNode("ISS", "ISS (ZARYA)", "LEO Crewed", iLat, iLon, iAlt, issVel, 51.6, 0.0, Color(0xFFFFB300)),
+            OrbitSatNode("EO-1", "CARTOSAT / EO-LEO", "LEO Earth Obs", 38.0 * sin(t * 0.035 + 1.1), ((iLon + 35.0 + t * 0.45 + 180.0) % 360.0) - 180.0, 520.0, 27100.0, 97.4, 28.0, Color(0xFF00E5FF)),
+            OrbitSatNode("NAV-1", "NAVIC / GNSS-MEO", "MEO Navigation", 28.0 * sin(t * 0.02 + 2.4), ((iLon - 60.0 + t * 0.25 + 180.0) % 360.0) - 180.0, 20200.0, 13900.0, 55.0, -34.0, Color(0xFF69F0AE)),
+            OrbitSatNode("MET-1", "INSAT / GEO-RELAY", "GEO Earth Watch", 12.0 * sin(t * 0.01), ((82.0 + sin(t * 0.015) * 25.0 + 180.0) % 360.0) - 180.0, 35786.0, 11070.0, 6.0, 12.0, Color(0xFFFF5E8E))
+        )
+    }
+
+    val activeSat = satellites.find { it.id == selectedId } ?: satellites.first()
+    val spin by rememberInfiniteTransition(label = "earthSpin").animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(28000, easing = LinearEasing)),
+        label = "earthDeg"
+    )
 
     Column(
         modifier = Modifier
@@ -32,7 +142,6 @@
             )
         }
 
-        // Live Earth Globe + Orbiting Satellites Canvas
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -46,7 +155,6 @@
                 val cy = size.height / 2f
                 val r = min(size.width, size.height) * 0.34f
 
-                // Ocean / Earth sphere gradient
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(Color(0xFF154360), Color(0xFF0B253A), Color(0xFF061320)),
@@ -56,8 +164,6 @@
                     radius = r,
                     center = Offset(cx, cy)
                 )
-
-                // Atmosphere rim
                 drawCircle(
                     color = Color(0xFF00E5FF).copy(alpha = 0.35f),
                     radius = r * 1.03f,
@@ -65,7 +171,6 @@
                     style = Stroke(width = 2.5f)
                 )
 
-                // Rotating longitude & latitude grid lines on Earth
                 val rotRad = Math.toRadians(spin.toDouble())
                 for (m in -2..2) {
                     val lonOff = rotRad + (m * PI / 3.0)
@@ -77,7 +182,7 @@
                             sweepAngle = 180f,
                             useCenter = false,
                             topLeft = Offset(cx - abs(rx), cy - r),
-                            size = androidx.compose.ui.geometry.Size(abs(rx) * 2f, r * 2f),
+                            size = Size(abs(rx) * 2f, r * 2f),
                             style = Stroke(width = 1f)
                         )
                     }
@@ -93,18 +198,17 @@
                     )
                 }
 
-                // Stylized landmass patches moving with spin
                 val continents = listOf(
-                    Triple(0.3f, -0.22f, 22f),
-                    Triple(1.5f, 0.15f, 26f),
-                    Triple(2.8f, -0.35f, 18f),
-                    Triple(4.3f, 0.25f, 24f)
+                    Triple(0.3, -0.22, 22f),
+                    Triple(1.5, 0.15, 26f),
+                    Triple(2.8, -0.35, 18f),
+                    Triple(4.3, 0.25, 24f)
                 )
                 for ((baseLon, latN, sz) in continents) {
                     val ang = baseLon + rotRad * 0.65
-                    val xRel = cos(ang) * cos(latN.toDouble())
-                    val zRel = sin(ang) * cos(latN.toDouble())
-                    val yRel = sin(latN.toDouble())
+                    val xRel = cos(ang) * cos(latN)
+                    val zRel = sin(ang) * cos(latN)
+                    val yRel = sin(latN)
                     if (zRel > -0.15) {
                         val px = cx + (xRel * r).toFloat()
                         val py = cy + (yRel * r).toFloat()
@@ -116,7 +220,6 @@
                     }
                 }
 
-                // Draw orbital paths & orbiting satellites around Earth
                 satellites.forEachIndexed { idx, sat ->
                     val orbitR = r * (1.16f + idx * 0.11f)
                     val tiltRad = Math.toRadians(sat.phaseOffsetDeg)
@@ -146,7 +249,6 @@
                     val sx = cx + (sx0 * cos(tiltRad) - sy0 * sin(tiltRad)).toFloat()
                     val sy = cy + (sx0 * sin(tiltRad) + sy0 * cos(tiltRad)).toFloat()
 
-                    // Ground-track line toward Earth surface
                     val gx = cx + (cos(satAng) * r * 0.85f).toFloat()
                     val gy = cy + (sin(satAng) * r * 0.32f).toFloat()
                     drawLine(
@@ -155,7 +257,6 @@
                         end = Offset(gx, gy),
                         strokeWidth = 1f
                     )
-
                     drawCircle(
                         color = sat.color,
                         radius = if (isSel) 7.5f else 5.2f,
@@ -173,7 +274,6 @@
             }
         }
 
-        // Focused Satellite Live Telemetry Card
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -202,7 +302,6 @@
             )
         }
 
-        // Selectable Satellite Access List
         satellites.forEach { sat ->
             val selected = sat.id == activeSat.id
             Row(
