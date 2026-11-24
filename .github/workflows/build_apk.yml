@@ -14,7 +14,7 @@ jobs:
           java-version: 17
       - name: Generate Offline Wake-Word Assets & Sherpa-ONNX AAR
         run: |
-          pip install "sherpa-onnx==1.12.31" sentencepiece
+          pip install "sherpa-onnx==1.12.31" sentencepiece pypinyin
           mkdir -p app/libs app/src/main/assets/kws
           curl -fSL -o app/libs/sherpa-onnx-1.12.31.aar https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.31/sherpa-onnx-1.12.31.aar
           curl -fSL -o kws.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2
