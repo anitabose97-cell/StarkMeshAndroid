@@ -94,6 +94,8 @@ fun StarkHud(
 
     var prompt by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
+    var processActive by remember { mutableStateOf(false) }
+    var processLabel by remember { mutableStateOf("IDLE // SYSTEM STANDBY") }
     var vStatus by remember {
         mutableStateOf(if (voices.areVoicesInstalled()) "Voices: Offline Ready" else "Voices: Download in Settings")
     }
@@ -273,6 +275,44 @@ fun StarkHud(
         JarvisHologramOrb(persona = persona, isActive = thinking, sat = sat)
         Spacer(Modifier.height(8.dp))
 
+        Spacer(Modifier.height(6.dp))
+        Column(
+            modifier = Modifier.fillMaxWidth()
+                .border(1.dp, if (processActive || thinking) acc else Color(0xFF1D354D), RoundedCornerShape(8.dp))
+                .background(Color(0xFF09131F), RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    text = if (thinking) "NEURAL CORE // GENERATING RESPONSE" else processLabel,
+                    color = if (processActive || thinking) acc else Color(0xFF8FB3D9),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = if (processActive || thinking) "ACTIVE" else "READY",
+                    color = if (processActive || thinking) Color(0xFF69F0AE) else Color(0xFF5D7A96),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            if (processActive || thinking) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(4.dp),
+                    color = acc,
+                    trackColor = Color(0xFF16283B)
+                )
+            } else {
+                LinearProgressIndicator(
+                    progress = { 1f },
+                    modifier = Modifier.fillMaxWidth().height(4.dp),
+                    color = Color(0xFF1F4E78),
+                    trackColor = Color(0xFF102030)
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
         when (activeTab) {
             "sat" -> {
                 SatelliteAccessLiveView(persona = persona, onBackToHud = { activeTab = "hud" })
@@ -336,7 +376,19 @@ fun StarkHud(
                             OutlinedButton(onClick = { voiceLang = "bn-IN"; scope.launch { vault.putSecret("voice_lang", "bn-IN") } }) { Text("বাংলা") }
                         }
 
-                        Button(onClick = { scope.launch { voices.downloadAndInstallVoices { vStatus = it } } }, modifier = Modifier.fillMaxWidth()) {
+                        Button(onClick = {
+                            scope.launch {
+                                processActive = true
+                                processLabel = "VOICE ENGINE // DOWNLOADING MODELS"
+                                val ok = voices.downloadAndInstallVoices {
+                                    vStatus = it
+                                    processLabel = "VOICE ENGINE // ${it.uppercase()}"
+                                }
+                                processLabel = if (ok) "VOICE ENGINE // OFFLINE READY" else "VOICE ENGINE // DOWNLOAD ERROR"
+                                kotlinx.coroutines.delay(2500L)
+                                processActive = false
+                            }
+                        }, modifier = Modifier.fillMaxWidth()) {
                             Text("Download Neural Voices (~134 MB)")
                         }
                         Text(vStatus, color = Color(0xFF9BB4CA), fontSize = 12.sp)
