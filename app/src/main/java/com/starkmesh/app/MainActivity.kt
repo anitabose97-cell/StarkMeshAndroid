@@ -86,6 +86,7 @@ fun StarkHud(
     var persona by remember { mutableStateOf("jarvis") }
     var busy by remember { mutableStateOf(false) }
     var vaultOpen by remember { mutableStateOf(false) }
+    var satLiveOpen by remember { mutableStateOf(false) }
     var prompt by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
     var vStatus by remember {
@@ -185,15 +186,22 @@ fun StarkHud(
                 )
                 Text("$devId • $vStatus", color = Color(0xFF9BB4CA), fontSize = 11.sp)
             }
-            OutlinedButton(onClick = { vaultOpen = !vaultOpen }) {
-                Text(if (vaultOpen) "HUD" else "Vault", color = acc)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = { satLiveOpen = !satLiveOpen; if (satLiveOpen) vaultOpen = false }) {
+                    Text(if (satLiveOpen) "HUD" else "Sat Live", color = Color(0xFF00E5FF))
+                }
+                OutlinedButton(onClick = { vaultOpen = !vaultOpen; if (vaultOpen) satLiveOpen = false }) {
+                    Text(if (vaultOpen) "HUD" else "Vault", color = acc)
+                }
             }
         }
         Spacer(Modifier.height(8.dp))
         JarvisHologramOrb(persona = persona, isActive = thinking, sat = sat)
         Spacer(Modifier.height(8.dp))
 
-        if (vaultOpen) {
+        if (satLiveOpen) {
+            SatelliteAccessLiveView(persona = persona, onBackToHud = { satLiveOpen = false })
+        } else if (vaultOpen) {
             Column(
                 modifier = Modifier.weight(1f)
                     .verticalScroll(rememberScrollState())
