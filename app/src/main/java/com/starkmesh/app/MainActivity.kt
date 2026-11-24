@@ -163,7 +163,8 @@ fun StarkHud(
         }
     }
 
-    val acc = if (persona == "friday") Color(0xFFFF5E8E) else Color(0xFF00E5FF)
+    val sat = rememberSatelliteTelemetry()
+    val acc = if (persona == "friday") Color(0xFFFF5E8E) else Color(0xFFFFB300)
     val bg = Color(0xFF070D14)
     val pan = Color(0xFF0E1A27)
 
@@ -188,7 +189,9 @@ fun StarkHud(
                 Text(if (vaultOpen) "HUD" else "Vault", color = acc)
             }
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
+        JarvisHologramOrb(persona = persona, isActive = thinking, sat = sat)
+        Spacer(Modifier.height(8.dp))
 
         if (vaultOpen) {
             Column(
