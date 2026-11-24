@@ -13,28 +13,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
-import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
-import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 class NeuralVoiceEngine(private val context: Context) {
     companion object {
         const val JARVIS_DIR = "vits-piper-en_GB-alan-medium"
         const val JARVIS_ONNX = "en_GB-alan-medium.onnx"
-        const val JARVIS_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-alan-medium.tar.bz2"
         const val FRIDAY_DIR = "vits-piper-en_GB-jenny_dioco-medium"
         const val FRIDAY_ONNX = "en_GB-jenny_dioco-medium.onnx"
-        const val FRIDAY_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-jenny_dioco-medium.tar.bz2"
     }
 
     private val modelsRoot = File(context.filesDir, "neural_voices").apply { mkdirs() }
-    private val http = OkHttpClient.Builder().readTimeout(180, TimeUnit.SECONDS).build()
     private val mutex = Mutex()
     private var loadedPersona: String? = null
     private var tts: OfflineTts? = null
@@ -54,35 +45,37 @@ class NeuralVoiceEngine(private val context: Context) {
         File(modelsRoot, "$JARVIS_DIR/$JARVIS_ONNX").exists() &&
             File(modelsRoot, "$FRIDAY_DIR/$FRIDAY_ONNX").exists()
 
-    suspend fun downloadAndInstallVoices(onProgress: (String) -> Unit): Boolean = withContext(Dispatchers.IO) {
+    suspend fun ensureBundledVoicesReady(onProgress: (String) -> Unit): Boolean = withContext(Dispatchers.IO) {
+        if (areVoicesInstalled()) {
+            onProgress("Bundled Neural Voices Ready")
+            return@withContext true
+        }
         try {
-            onProgress("Downloading J.A.R.V.I.S. voice...")
-            extract(JARVIS_URL, modelsRoot)
-            onProgress("Downloading F.R.I.D.A.Y. voice...")
-            extract(FRIDAY_URL, modelsRoot)
-            onProgress("Neural voices ready offline.")
+            onProgress("Unpacking J.A.R.V.I.S. bundled voice...")
+            copyAssetTree("neural_voices/$JARVIS_DIR", File(modelsRoot, JARVIS_DIR))
+            onProgress("Unpacking F.R.I.D.A.Y. bundled voice...")
+            copyAssetTree("neural_voices/$FRIDAY_DIR", File(modelsRoot, FRIDAY_DIR))
+            onProgress("Bundled Neural Voices Ready")
             true
         } catch (e: Exception) {
-            onProgress("Error: ${e.message}")
+            onProgress("Voice unpack error: ${e.message}")
             false
         }
     }
 
-    private fun extract(url: String, dest: File) {
-        http.newCall(Request.Builder().url(url).build()).execute().use { r ->
-            if (!r.isSuccessful) throw IllegalStateException("HTTP ${r.code}")
-            TarArchiveInputStream(BZip2CompressorInputStream(BufferedInputStream(r.body!!.byteStream()))).use { tar ->
-                var e = tar.nextEntry
-                while (e != null) {
-                    val out = File(dest, e.name)
-                    if (!out.canonicalPath.startsWith(dest.canonicalPath)) throw SecurityException("Path")
-                    if (e.isDirectory) out.mkdirs()
-                    else {
-                        out.parentFile?.mkdirs()
-                        FileOutputStream(out).use { tar.copyTo(it) }
-                    }
-                    e = tar.nextEntry
+    private fun copyAssetTree(assetPath: String, destDir: File) {
+        val list = context.assets.list(assetPath) ?: return
+        if (list.isEmpty()) {
+            destDir.parentFile?.mkdirs()
+            if (!destDir.exists()) {
+                context.assets.open(assetPath).use { input ->
+                    FileOutputStream(destDir).use { output -> input.copyTo(output) }
                 }
+            }
+        } else {
+            destDir.mkdirs()
+            for (child in list) {
+                copyAssetTree("$assetPath/$child", File(destDir, child))
             }
         }
     }
@@ -139,6 +132,7 @@ class NeuralVoiceEngine(private val context: Context) {
         val clean = text.replace(Regex("[*_`#]"), "").trim()
         if (clean.isBlank()) return@withLock
         withContext(Dispatchers.IO) {
+            if (!areVoicesInstalled()) ensureBundledVoicesReady {}
             val loc = detectLocale(clean)
             val isIndic = loc.language == "hi" || loc.language == "bn"
             val eng = if (!isIndic) loadModel(persona) else null

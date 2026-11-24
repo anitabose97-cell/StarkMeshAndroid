@@ -97,7 +97,7 @@ fun StarkHud(
     var processActive by remember { mutableStateOf(false) }
     var processLabel by remember { mutableStateOf("IDLE // SYSTEM STANDBY") }
     var vStatus by remember {
-        mutableStateOf(if (voices.areVoicesInstalled()) "Voices: Offline Ready" else "Voices: Download in Settings")
+        mutableStateOf(if (voices.areVoicesInstalled()) "Voices: Bundled Ready" else "Voices: Initializing...")
     }
     val msgs = remember { mutableStateListOf<Pair<String, String>>() }
 
@@ -205,6 +205,16 @@ fun StarkHud(
     }
 
     LaunchedEffect(Unit) {
+        if (!voices.areVoicesInstalled()) {
+            processActive = true
+            processLabel = "VOICE ENGINE // UNPACKING BUNDLED MODELS"
+            voices.ensureBundledVoicesReady {
+                vStatus = it
+                processLabel = "VOICE ENGINE // ${it.uppercase()}"
+            }
+            processLabel = "IDLE // SYSTEM STANDBY"
+            processActive = false
+        }
         persona = vault.getSecret("active_persona", "jarvis")
         busy = vault.getSecret("busy_mode", "false") == "true"
         voiceLang = vault.getSecret("voice_lang", "en-IN")
@@ -259,138 +269,7 @@ fun StarkHud(
                 Text("$devId • $voiceLang • $vStatus", color = Color(0xFF9BB4CA), fontSize = 11.sp)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                OutlinedButton(onClick = { activeTab = "hud" }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-                    Text("HUD", color = if (activeTab == "hud") acc else Color(0xFF9BB4CA), fontSize = 11.sp)
-                }
-                OutlinedButton(onClick = { activeTab = "sat" }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-                    Text("Sat Live", color = if (activeTab == "sat") Color(0xFF00E5FF) else Color(0xFF9BB4CA), fontSize = 11.sp)
-                }
-                OutlinedButton(onClick = { activeTab = "settings" }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-                    Text("Settings", color = if (activeTab == "settings") acc else Color(0xFF9BB4CA), fontSize = 11.sp)
-                }
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-        JarvisHologramOrb(persona = persona, isActive = thinking, sat = sat)
-        Spacer(Modifier.height(8.dp))
-
-        Spacer(Modifier.height(6.dp))
-        Column(
-            modifier = Modifier.fillMaxWidth()
-                .border(1.dp, if (processActive || thinking) acc else Color(0xFF1D354D), RoundedCornerShape(8.dp))
-                .background(Color(0xFF09131F), RoundedCornerShape(8.dp))
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(
-                    text = if (thinking) "NEURAL CORE // GENERATING RESPONSE" else processLabel,
-                    color = if (processActive || thinking) acc else Color(0xFF8FB3D9),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = if (processActive || thinking) "ACTIVE" else "READY",
-                    color = if (processActive || thinking) Color(0xFF69F0AE) else Color(0xFF5D7A96),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            if (processActive || thinking) {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().height(4.dp),
-                    color = acc,
-                    trackColor = Color(0xFF16283B)
-                )
-            } else {
-                LinearProgressIndicator(
-                    progress = { 1f },
-                    modifier = Modifier.fillMaxWidth().height(4.dp),
-                    color = Color(0xFF1F4E78),
-                    trackColor = Color(0xFF102030)
-                )
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        when (activeTab) {
-            "sat" -> {
-                SatelliteAccessLiveView(persona = persona, onBackToHud = { activeTab = "hud" })
-            }
-            "settings" -> {
-                Column(
-                    modifier = Modifier.weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .border(1.dp, acc, RoundedCornerShape(12.dp))
-                        .background(pan, RoundedCornerShape(12.dp))
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { settingsSection = "vault" }) { Text("Vault & Voice") }
-                        OutlinedButton(onClick = { settingsSection = "interconnect" }) {
-                            Text("Interconnectivity", color = Color(0xFF00E5FF))
-                        }
-                    }
-
-                    if (settingsSection == "interconnect") {
-                        Text("BIXBY-STYLE INTERCONNECTIVITY & CALL ROUTING", color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = {
-                                handsFreeBg = !handsFreeBg
-                                scope.launch { vault.putSecret("hands_free_bg", handsFreeBg.toString()) }
-                            }) { Text(if (handsFreeBg) "Hands-Free BG: ON" else "Hands-Free BG: OFF", color = acc) }
-                            OutlinedButton(onClick = {
-                                autoAnswerCalls = !autoAnswerCalls
-                                scope.launch { vault.putSecret("auto_answer_calls", autoAnswerCalls.toString()) }
-                            }) { Text(if (autoAnswerCalls) "Auto-Answer: ON" else "Auto-Answer: OFF", color = acc) }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                    roleL.launch(ctx.getSystemService(RoleManager::class.java).createRequestRoleIntent(RoleManager.ROLE_DIALER))
-                                }
-                            }) { Text("Set Default Phone/Call") }
-                            OutlinedButton(onClick = {
-                                permL.launch(arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE, Manifest.permission.ANSWER_PHONE_CALLS))
-                            }) { Text("Call Perms") }
-                        }
-                        OutlinedTextField(value = known, onValueChange = { known = it }, label = { Text("Connected Mesh Nodes (Phones + Pi 5)") }, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = topic, onValueChange = { topic = it }, label = { Text("Mesh Relay Topic (ntfy.sh)") }, modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = token, onValueChange = { token = it }, label = { Text("Mesh Shared Secret Token") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                        Button(onClick = {
-                            scope.launch {
-                                vault.putSecret("known_devices", known.trim())
-                                vault.putSecret("relay_topic", topic.trim())
-                                vault.putSecret("relay_token", token.trim())
-                                vault.putSecret("hands_free_bg", handsFreeBg.toString())
-                                vault.putSecret("auto_answer_calls", autoAnswerCalls.toString())
-                                ContextCompat.startForegroundService(ctx, Intent(ctx, StarkRelayService::class.java))
-                            }
-                        }, modifier = Modifier.fillMaxWidth()) { Text("Apply Interconnectivity & Sync Mesh") }
-                    } else {
-                        Text("LANGUAGE: EN / HINDI / BENGALI VOICE", color = acc, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            OutlinedButton(onClick = { voiceLang = "en-IN"; scope.launch { vault.putSecret("voice_lang", "en-IN") } }) { Text("English") }
-                            OutlinedButton(onClick = { voiceLang = "hi-IN"; scope.launch { vault.putSecret("voice_lang", "hi-IN") } }) { Text("हिंदी") }
-                            OutlinedButton(onClick = { voiceLang = "bn-IN"; scope.launch { vault.putSecret("voice_lang", "bn-IN") } }) { Text("বাংলা") }
-                        }
-
-                        Button(onClick = {
-                            scope.launch {
-                                processActive = true
-                                processLabel = "VOICE ENGINE // DOWNLOADING MODELS"
-                                val ok = voices.downloadAndInstallVoices {
-                                    vStatus = it
-                                    processLabel = "VOICE ENGINE // ${it.uppercase()}"
-                                }
-                                processLabel = if (ok) "VOICE ENGINE // OFFLINE READY" else "VOICE ENGINE // DOWNLOAD ERROR"
-                                kotlinx.coroutines.delay(2500L)
-                                processActive = false
-                            }
-                        }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Download Neural Voices (~134 MB)")
-                        }
+                OutlinedText("PRE-INSTALLED NEURAL VOICES: J.A.R.V.I.S. / F.R.I.D.A.Y. / E.D.I.T.H. (BUNDLED IN APK)", color = Color(0xFF69F0AE), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         Text(vStatus, color = Color(0xFF9BB4CA), fontSize = 12.sp)
                         OutlinedTextField(value = devId, onValueChange = { devId = it }, label = { Text("Device ID") }, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(value = pin, onValueChange = { pin = it }, label = { Text("Unlock PIN (Local Vault)") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())

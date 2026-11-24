@@ -1,8 +1,10 @@
 name: Build StarkMesh APK
+
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -12,10 +14,10 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - name: Generate Offline Wake-Word Assets & Sherpa-ONNX AAR
+      - name: Generate Offline Wake-Word & Bundled Neural Voice Assets
         run: |
           pip install "sherpa-onnx==1.12.31" sentencepiece pypinyin
-          mkdir -p app/libs app/src/main/assets/kws
+          mkdir -p app/libs app/src/main/assets/kws app/src/main/assets/neural_voices
           curl -fSL -o app/libs/sherpa-onnx-1.12.31.aar https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.31/sherpa-onnx-1.12.31.aar
           curl -fSL -o kws.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2
           tar -xjf kws.tar.bz2
@@ -26,6 +28,22 @@ jobs:
           cp "$KWS_DIR"/tokens.txt app/src/main/assets/kws/
           printf "HEY JARVIS\nHEY FRIDAY\n" > keywords_raw.txt
           sherpa-onnx-cli text2token --tokens "$KWS_DIR/tokens.txt" --tokens-type bpe --bpe-model "$KWS_DIR/bpe.model" keywords_raw.txt app/src/main/assets/kws/keywords.txt
+          curl -fSL -o jarvis_voice.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-alan-medium.tar.bz2
+          tar -xjf jarvis_voice.tar.bz2 -C app/src/main/assets/neural_voices/
+          curl -fSL -o friday_voice.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-jenny_dioco-medium.tar.bz2
+          tar -xjf friday_voice.tar.bz2 -C app/src/main/assets/neural_voices/
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+      - run: gradle assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StarkMesh-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          curl -fSL -o jarvis_voice.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-alan-medium.tar.bz2
+          tar -xjf jarvis_voice.tar.bz2 -C app/src/main/assets/neural_voices/
+          curl -fSL -o friday_voice.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-jenny_dioco-medium.tar.bz2
+          tar -xjf friday_voice.tar.bz2 -C app/src/main/assets/neural_voices/
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.10.2
