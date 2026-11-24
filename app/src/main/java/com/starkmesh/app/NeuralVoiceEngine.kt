@@ -39,9 +39,15 @@ class NeuralVoiceEngine(private val context: Context) {
     private var loadedPersona: String? = null
     private var tts: OfflineTts? = null
     private var fallback: TextToSpeech? = null
+    @Volatile private var fallbackReady = false
 
     init {
-        fallback = TextToSpeech(context) { if (it == TextToSpeech.SUCCESS) fallback?.language = Locale.UK }
+        fallback = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                fallbackReady = true
+                fallback?.language = Locale("en", "IN")
+            }
+        }
     }
 
     fun areVoicesInstalled(): Boolean =
@@ -81,10 +87,29 @@ class NeuralVoiceEngine(private val context: Context) {
         }
     }
 
+    private fun detectLocale(text: String): Locale = when {
+        text.any { it.code in 0x0980..0x09FF } -> Locale("bn", "IN")
+        text.any { it.code in 0x0900..0x097F } -> Locale("hi", "IN")
+        else -> Locale("en", "IN")
+    }
+
+    private fun personaPitch(persona: String): Float = when (persona) {
+        "friday" -> 1.18f
+        "edith" -> 1.05f
+        else -> 0.85f
+    }
+
+    private fun personaSpeed(persona: String): Float = when (persona) {
+        "friday" -> 1.06f
+        "edith" -> 1.02f
+        else -> 0.96f
+    }
+
     private fun loadModel(persona: String): OfflineTts? {
-        if (loadedPersona == persona && tts != null) return tts
-        val dir = if (persona == "friday") FRIDAY_DIR else JARVIS_DIR
-        val onnx = if (persona == "friday") FRIDAY_ONNX else JARVIS_ONNX
+        val basePersona = if (persona == "friday") "friday" else "jarvis"
+        if (loadedPersona == basePersona && tts != null) return tts
+        val dir = if (basePersona == "friday") FRIDAY_DIR else JARVIS_DIR
+        val onnx = if (basePersona == "friday") FRIDAY_ONNX else JARVIS_ONNX
         val base = File(modelsRoot, dir)
         val m = File(base, onnx)
         val t = File(base, "tokens.txt")
@@ -106,7 +131,7 @@ class NeuralVoiceEngine(private val context: Context) {
             provider = "cpu"
         )
         tts = OfflineTts(assetManager = null, config = OfflineTtsConfig(model = modelCfg))
-        loadedPersona = persona
+        loadedPersona = basePersona
         return tts
     }
 
@@ -114,13 +139,19 @@ class NeuralVoiceEngine(private val context: Context) {
         val clean = text.replace(Regex("[*_`#]"), "").trim()
         if (clean.isBlank()) return@withLock
         withContext(Dispatchers.IO) {
-            val eng = loadModel(persona)
+            val loc = detectLocale(clean)
+            val isIndic = loc.language == "hi" || loc.language == "bn"
+            val eng = if (!isIndic) loadModel(persona) else null
             if (eng == null) {
-                fallback?.setPitch(if (persona == "friday") 1.15f else 0.88f)
-                fallback?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "fb")
+                if (fallbackReady) {
+                    fallback?.language = loc
+                    fallback?.setPitch(personaPitch(persona))
+                    fallback?.setSpeechRate(personaSpeed(persona))
+                    fallback?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "fb")
+                }
                 return@withContext
             }
-            val gen = eng.generate(text = clean, sid = 0, speed = if (persona == "friday") 1.04f else 0.97f)
+            val gen = eng.generate(text = clean, sid = 0, speed = personaSpeed(persona))
             play(gen.samples, gen.sampleRate)
         }
     }

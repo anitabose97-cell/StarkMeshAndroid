@@ -95,9 +95,11 @@ fun SatelliteAccessLiveView(
         val (iLat, iLon, iAlt) = issLive
         listOf(
             OrbitSatNode("ISS", "ISS (ZARYA)", "LEO Crewed", iLat, iLon, iAlt, issVel, 51.6, 0.0, Color(0xFFFFB300)),
-            OrbitSatNode("EO-1", "CARTOSAT / EO-LEO", "LEO Earth Obs", 38.0 * sin(t * 0.035 + 1.1), ((iLon + 35.0 + t * 0.45 + 180.0) % 360.0) - 180.0, 520.0, 27100.0, 97.4, 28.0, Color(0xFF00E5FF)),
-            OrbitSatNode("NAV-1", "NAVIC / GNSS-MEO", "MEO Navigation", 28.0 * sin(t * 0.02 + 2.4), ((iLon - 60.0 + t * 0.25 + 180.0) % 360.0) - 180.0, 20200.0, 13900.0, 55.0, -34.0, Color(0xFF69F0AE)),
-            OrbitSatNode("MET-1", "INSAT / GEO-RELAY", "GEO Earth Watch", 12.0 * sin(t * 0.01), ((82.0 + sin(t * 0.015) * 25.0 + 180.0) % 360.0) - 180.0, 35786.0, 11070.0, 6.0, 12.0, Color(0xFFFF5E8E))
+            OrbitSatNode("EO-1", "CARTOSAT-3", "LEO High-Res Obs", 34.0 * sin(t * 0.035 + 1.0), ((iLon + 32.0 + t * 0.45 + 180.0) % 360.0) - 180.0, 509.0, 27250.0, 97.5, 24.0, Color(0xFF00E5FF)),
+            OrbitSatNode("NAV-1", "IRNSS / NAVIC-1G", "IGSO/MEO Regional Nav", 26.0 * sin(t * 0.022 + 2.1), ((82.9 + sin(t * 0.02) * 18.0 + 180.0) % 360.0) - 180.0, 35786.0, 11070.0, 29.0, -28.0, Color(0xFF69F0AE)),
+            OrbitSatNode("MET-1", "INSAT-3DR", "GEO Weather & Relay", 4.0 * sin(t * 0.01), ((74.0 + cos(t * 0.012) * 8.0 + 180.0) % 360.0) - 180.0, 35786.0, 11070.0, 2.0, 8.0, Color(0xFFFF5E8E)),
+            OrbitSatNode("NOAA-20", "NOAA-20 (JPSS-1)", "LEO Polar Weather", 58.0 * sin(t * 0.03 + 3.4), ((iLon - 75.0 + t * 0.38 + 180.0) % 360.0) - 180.0, 824.0, 26800.0, 98.7, -48.0, Color(0xFFCE93D8)),
+            OrbitSatNode("STR-42", "STARLINK-MESH-42", "LEO Low-Latency Comm", 44.0 * sin(t * 0.045 + 0.6), ((iLon + 85.0 + t * 0.55 + 180.0) % 360.0) - 180.0, 550.0, 27360.0, 53.2, 42.0, Color(0xFF4DD0E1))
         )
     }
 
@@ -127,8 +129,8 @@ fun SatelliteAccessLiveView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text("SATELLITE ACCESS // LIVE EARTH", color = accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                Text("ISS Telemetry: $issVis • Tap satellite to focus", color = Color(0xFF9BB4CA), fontSize = 11.sp)
+                Text("SATELLITE ACCESS // ${satellites.size} LIVE NODES", color = accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("ISS: $issVis • Tap any satellite to track", color = Color(0xFF9BB4CA), fontSize = 11.sp)
             }
             Text(
                 "< HUD",
@@ -145,7 +147,7 @@ fun SatelliteAccessLiveView(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(270.dp)
+                .height(275.dp)
                 .border(1.dp, Color(0xFF1D354D), RoundedCornerShape(14.dp))
                 .background(Color(0xFF040810), RoundedCornerShape(14.dp))
                 .padding(8.dp)
@@ -153,7 +155,7 @@ fun SatelliteAccessLiveView(
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val cx = size.width / 2f
                 val cy = size.height / 2f
-                val r = min(size.width, size.height) * 0.34f
+                val r = min(size.width, size.height) * 0.32f
 
                 drawCircle(
                     brush = Brush.radialGradient(
@@ -199,10 +201,10 @@ fun SatelliteAccessLiveView(
                 }
 
                 val continents = listOf(
-                    Triple(0.3, -0.22, 22f),
-                    Triple(1.5, 0.15, 26f),
-                    Triple(2.8, -0.35, 18f),
-                    Triple(4.3, 0.25, 24f)
+                    Triple(0.3, -0.22, 20f),
+                    Triple(1.5, 0.15, 24f),
+                    Triple(2.8, -0.35, 16f),
+                    Triple(4.3, 0.25, 22f)
                 )
                 for ((baseLon, latN, sz) in continents) {
                     val ang = baseLon + rotRad * 0.65
@@ -221,7 +223,7 @@ fun SatelliteAccessLiveView(
                 }
 
                 satellites.forEachIndexed { idx, sat ->
-                    val orbitR = r * (1.16f + idx * 0.11f)
+                    val orbitR = r * (1.14f + idx * 0.08f)
                     val tiltRad = Math.toRadians(sat.phaseOffsetDeg)
                     val path = Path()
                     val steps = 72
@@ -239,11 +241,11 @@ fun SatelliteAccessLiveView(
                     val isSel = sat.id == activeSat.id
                     drawPath(
                         path = path,
-                        color = sat.color.copy(alpha = if (isSel) 0.75f else 0.28f),
-                        style = Stroke(width = if (isSel) 2.2f else 1.2f)
+                        color = sat.color.copy(alpha = if (isSel) 0.8f else 0.25f),
+                        style = Stroke(width = if (isSel) 2.2f else 1.1f)
                     )
 
-                    val satAng = Math.toRadians(sat.lon + tickSec * (2.5 + idx * 1.3))
+                    val satAng = Math.toRadians(sat.lon + tickSec * (2.5 + idx * 1.2))
                     val sx0 = cos(satAng) * orbitR
                     val sy0 = sin(satAng) * orbitR * 0.36f
                     val sx = cx + (sx0 * cos(tiltRad) - sy0 * sin(tiltRad)).toFloat()
@@ -252,23 +254,14 @@ fun SatelliteAccessLiveView(
                     val gx = cx + (cos(satAng) * r * 0.85f).toFloat()
                     val gy = cy + (sin(satAng) * r * 0.32f).toFloat()
                     drawLine(
-                        color = sat.color.copy(alpha = if (isSel) 0.55f else 0.18f),
+                        color = sat.color.copy(alpha = if (isSel) 0.55f else 0.16f),
                         start = Offset(sx, sy),
                         end = Offset(gx, gy),
                         strokeWidth = 1f
                     )
-                    drawCircle(
-                        color = sat.color,
-                        radius = if (isSel) 7.5f else 5.2f,
-                        center = Offset(sx, sy)
-                    )
+                    drawCircle(color = sat.color, radius = if (isSel) 7.2f else 4.8f, center = Offset(sx, sy))
                     if (isSel) {
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.8f),
-                            radius = 11f,
-                            center = Offset(sx, sy),
-                            style = Stroke(width = 1.5f)
-                        )
+                        drawCircle(color = Color.White.copy(alpha = 0.85f), radius = 10.5f, center = Offset(sx, sy), style = Stroke(width = 1.5f))
                     }
                 }
             }
@@ -282,24 +275,9 @@ fun SatelliteAccessLiveView(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                "${activeSat.name} • ${activeSat.orbitType}",
-                color = activeSat.color,
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp
-            )
-            Text(
-                String.format(Locale.US, "LAT: %.3f°   LON: %.3f°", activeSat.lat, activeSat.lon),
-                color = Color(0xFFEAF6FF),
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace
-            )
-            Text(
-                String.format(Locale.US, "ALT: %.0f km   VEL: %.0f km/h   INC: %.1f°", activeSat.altKm, activeSat.velKmh, activeSat.inclinationDeg),
-                color = Color(0xFF9BB4CA),
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace
-            )
+            Text("${activeSat.name} •${activeSat.orbitType}", color = activeSat.color, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(String.format(Locale.US, "LAT: %.3f°   LON: %.3f°", activeSat.lat, activeSat.lon), color = Color(0xFFEAF6FF), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            Text(String.format(Locale.US, "ALT: %.0f km   VEL: %.0f km/h   INC: %.1f°", activeSat.altKm, activeSat.velKmh, activeSat.inclinationDeg), color = Color(0xFF9BB4CA), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
         }
 
         satellites.forEach { sat ->
@@ -318,12 +296,7 @@ fun SatelliteAccessLiveView(
                     Text(sat.name, color = sat.color, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Text("${sat.orbitType} • Alt ${sat.altKm.toInt()} km", color = Color(0xFF9BB4CA), fontSize = 11.sp)
                 }
-                Text(
-                    String.format(Locale.US, "%.1f°, %.1f°", sat.lat, sat.lon),
-                    color = Color(0xFFD6E8F7),
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace
-                )
+                Text(String.format(Locale.US, "%.1f°, %.1f°", sat.lat, sat.lon), color = Color(0xFFD6E8F7), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
             }
         }
     }
