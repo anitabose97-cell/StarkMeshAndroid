@@ -51,14 +51,13 @@ class NeuralVoiceEngine(private val context: Context) {
             return@withContext true
         }
         try {
-            onProgress("Unpacking J.A.R.V.I.S. bundled voice...")
+            onProgress("Checking bundled voice assets...")
             copyAssetTree("neural_voices/$JARVIS_DIR", File(modelsRoot, JARVIS_DIR))
-            onProgress("Unpacking F.R.I.D.A.Y. bundled voice...")
             copyAssetTree("neural_voices/$FRIDAY_DIR", File(modelsRoot, FRIDAY_DIR))
-            onProgress("Bundled Neural Voices Ready")
+            onProgress(if (areVoicesInstalled()) "Bundled Neural Voices Ready" else "Using Android TTS Engine")
             true
         } catch (e: Exception) {
-            onProgress("Voice unpack error: ${e.message}")
+            onProgress("Using Android TTS: ${e.message}")
             false
         }
     }

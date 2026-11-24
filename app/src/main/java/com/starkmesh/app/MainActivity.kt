@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -86,9 +87,9 @@ fun StarkHud(
 
     var persona by remember { mutableStateOf("jarvis") }
     var busy by remember { mutableStateOf(false) }
-    var activeTab by remember { mutableStateOf("hud") } // "hud", "sat", "settings"
-    var settingsSection by remember { mutableStateOf("vault") } // "vault", "interconnect"
-    var voiceLang by remember { mutableStateOf("en-IN") } // "en-IN", "hi-IN", "bn-IN"
+    var activeTab by remember { mutableStateOf("hud") }
+    var settingsSection by remember { mutableStateOf("vault") }
+    var voiceLang by remember { mutableStateOf("en-IN") }
     var handsFreeBg by remember { mutableStateOf(true) }
     var autoAnswerCalls by remember { mutableStateOf(false) }
 
@@ -97,7 +98,7 @@ fun StarkHud(
     var processActive by remember { mutableStateOf(false) }
     var processLabel by remember { mutableStateOf("IDLE // SYSTEM STANDBY") }
     var vStatus by remember {
-        mutableStateOf(if (voices.areVoicesInstalled()) "Voices: Bundled Ready" else "Voices: Initializing...")
+        mutableStateOf(if (voices.areVoicesInstalled()) "Voices: Ready" else "Voices: System/Local Ready")
     }
     val msgs = remember { mutableStateListOf<Pair<String, String>>() }
 
@@ -130,8 +131,7 @@ fun StarkHud(
                 "Language switched to English (en-IN)."
             }
             lower.contains("answer call") || lower.contains("pick up") || lower.contains("कॉल उठाओ") || lower.contains("কল ধরো") -> {
-                val ok = JarvisInCallService.answerIncomingCall(ctx)
-                if (ok) "Incoming call answered on speaker." else "No ringing incoming call detected."
+                if (JarvisInCallService.answerIncomingCall(ctx)) "Incoming call answered." else "No ringing incoming call detected."
             }
             lower.contains("hang up") || lower.contains("end call") || lower.contains("कॉल काटो") || lower.contains("কল কাটো") -> {
                 if (JarvisInCallService.hangupCurrentCall()) "Call disconnected." else "No active call to end."
@@ -156,14 +156,20 @@ fun StarkHud(
         if (localAction != null) {
             msgs.add(persona.uppercase() to localAction)
             scope.launch {
+                processActive = true
+                processLabel = "VOICE SYNTH // SPEAKING RESPONSE"
                 StarkRelayService.wakeDetectorRef?.isPaused = true
                 voices.speak(localAction, persona)
                 StarkRelayService.wakeDetectorRef?.isPaused = false
+                processActive = false
+                processLabel = "IDLE // SYSTEM STANDBY"
             }
             return
         }
 
         thinking = true
+        processActive = true
+        processLabel = "NEURAL CORE // GENERATING RESPONSE"
         val langInstruction = when (voiceLang) {
             "hi-IN" -> " Reply clearly in Hindi (Devanagari). "
             "bn-IN" -> " Reply clearly in Bengali (বাংলা). "
@@ -173,9 +179,12 @@ fun StarkHud(
             StarkRelayService.wakeDetectorRef?.isPaused = true
             val r = ai.ask(langInstruction + t, persona, b64)
             msgs.add(persona.uppercase() to r)
+            processLabel = "VOICE SYNTH // SPEAKING RESPONSE"
             voices.speak(r, persona)
             StarkRelayService.wakeDetectorRef?.isPaused = false
             thinking = false
+            processActive = false
+            processLabel = "IDLE // SYSTEM STANDBY"
         }
     }
 
@@ -183,6 +192,8 @@ fun StarkHud(
     val roleL = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
     val micL = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         StarkRelayService.wakeDetectorRef?.isPaused = false
+        processActive = false
+        processLabel = "IDLE // SYSTEM STANDBY"
         if (res.resultCode == Activity.RESULT_OK) {
             res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
                 ?.firstOrNull()
@@ -192,6 +203,8 @@ fun StarkHud(
     }
 
     fun launchMic() {
+        processActive = true
+        processLabel = "MIC CAPTURE // LISTENING ($voiceLang)"
         StarkRelayService.wakeDetectorRef?.isPaused = true
         try {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
@@ -201,20 +214,12 @@ fun StarkHud(
             micL.launch(intent)
         } catch (_: Exception) {
             StarkRelayService.wakeDetectorRef?.isPaused = false
+            processActive = false
+            processLabel = "IDLE // SYSTEM STANDBY"
         }
     }
 
     LaunchedEffect(Unit) {
-        if (!voices.areVoicesInstalled()) {
-            processActive = true
-            processLabel = "VOICE ENGINE // UNPACKING BUNDLED MODELS"
-            voices.ensureBundledVoicesReady {
-                vStatus = it
-                processLabel = "VOICE ENGINE // ${it.uppercase()}"
-            }
-            processLabel = "IDLE // SYSTEM STANDBY"
-            processActive = false
-        }
         persona = vault.getSecret("active_persona", "jarvis")
         busy = vault.getSecret("busy_mode", "false") == "true"
         voiceLang = vault.getSecret("voice_lang", "en-IN")
@@ -229,6 +234,17 @@ fun StarkHud(
         topic = vault.getSecret("relay_topic", "")
         token = vault.getSecret("relay_token", "")
         limit = vault.getSecret("screen_limit_min", "45")
+        if (!voices.areVoicesInstalled()) {
+            processActive = true
+            processLabel = "VOICE ENGINE // INITIALIZING"
+            voices.ensureBundledVoicesReady {
+                vStatus = it
+                processLabel = "VOICE ENGINE // ${it.uppercase()}"
+            }
+            delay(1500L)
+            processActive = false
+            processLabel = "IDLE // SYSTEM STANDBY"
+        }
     }
 
     LaunchedEffect(wakeNonce) {
@@ -269,8 +285,128 @@ fun StarkHud(
                 Text("$devId • $voiceLang • $vStatus", color = Color(0xFF9BB4CA), fontSize = 11.sp)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                OutlinedText("PRE-INSTALLED NEURAL VOICES: J.A.R.V.I.S. / F.R.I.D.A.Y. / E.D.I.T.H. (BUNDLED IN APK)", color = Color(0xFF69F0AE), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text(vStatus, color = Color(0xFF9BB4CA), fontSize = 12.sp)
+                OutlinedButton(onClick = { activeTab = "hud" }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                    Text("HUD", color = if (activeTab == "hud") acc else Color(0xFF9BB4CA), fontSize = 11.sp)
+                }
+                OutlinedButton(onClick = { activeTab = "sat" }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                    Text("Sat Live", color = if (activeTab == "sat") Color(0xFF00E5FF) else Color(0xFF9BB4CA), fontSize = 11.sp)
+                }
+                OutlinedButton(onClick = { activeTab = "settings" }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                    Text("Settings", color = if (activeTab == "settings") acc else Color(0xFF9BB4CA), fontSize = 11.sp)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+        JarvisHologramOrb(persona = persona, isActive = thinking || processActive, sat = sat)
+        Spacer(Modifier.height(6.dp))
+
+        Column(
+            modifier = Modifier.fillMaxWidth()
+                .border(1.dp, if (processActive || thinking) acc else Color(0xFF1D354D), RoundedCornerShape(8.dp))
+                .background(Color(0xFF09131F), RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    text = processLabel,
+                    color = if (processActive || thinking) acc else Color(0xFF8FB3D9),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = if (processActive || thinking) "ACTIVE" else "READY",
+                    color = if (processActive || thinking) Color(0xFF69F0AE) else Color(0xFF5D7A96),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            if (processActive || thinking) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(4.dp),
+                    color = acc,
+                    trackColor = Color(0xFF16283B)
+                )
+            } else {
+                LinearProgressIndicator(
+                    progress = { 1f },
+                    modifier = Modifier.fillMaxWidth().height(4.dp),
+                    color = Color(0xFF1F4E78),
+                    trackColor = Color(0xFF102030)
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+
+        when (activeTab) {
+            "sat" -> {
+                SatelliteAccessLiveView(persona = persona, onBackToHud = { activeTab = "hud" })
+            }
+            "settings" -> {
+                Column(
+                    modifier = Modifier.weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .border(1.dp, acc, RoundedCornerShape(12.dp))
+                        .background(pan, RoundedCornerShape(12.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { settingsSection = "vault" }) { Text("Vault & Voice") }
+                        OutlinedButton(onClick = { settingsSection = "interconnect" }) {
+                            Text("Interconnectivity", color = Color(0xFF00E5FF))
+                        }
+                    }
+
+                    if (settingsSection == "interconnect") {
+                        Text("BIXBY-STYLE INTERCONNECTIVITY & CALL ROUTING", color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = {
+                                handsFreeBg = !handsFreeBg
+                                scope.launch { vault.putSecret("hands_free_bg", handsFreeBg.toString()) }
+                            }) { Text(if (handsFreeBg) "Hands-Free BG: ON" else "Hands-Free BG: OFF", color = acc) }
+                            OutlinedButton(onClick = {
+                                autoAnswerCalls = !autoAnswerCalls
+                                scope.launch { vault.putSecret("auto_answer_calls", autoAnswerCalls.toString()) }
+                            }) { Text(if (autoAnswerCalls) "Auto-Answer: ON" else "Auto-Answer: OFF", color = acc) }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                    roleL.launch(ctx.getSystemService(RoleManager::class.java).createRequestRoleIntent(RoleManager.ROLE_DIALER))
+                                }
+                            }) { Text("Set Default Phone/Call") }
+                            OutlinedButton(onClick = {
+                                permL.launch(arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE, Manifest.permission.ANSWER_PHONE_CALLS))
+                            }) { Text("Call Perms") }
+                        }
+                        OutlinedTextField(value = known, onValueChange = { known = it }, label = { Text("Connected Mesh Nodes (Phones + Pi 5)") }, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(value = topic, onValueChange = { topic = it }, label = { Text("Mesh Relay Topic (ntfy.sh)") }, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(value = token, onValueChange = { token = it }, label = { Text("Mesh Shared Secret Token") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                        Button(onClick = {
+                            scope.launch {
+                                processActive = true
+                                processLabel = "MESH SYNC // APPLYING INTERCONNECTIVITY"
+                                vault.putSecret("known_devices", known.trim())
+                                vault.putSecret("relay_topic", topic.trim())
+                                vault.putSecret("relay_token", token.trim())
+                                vault.putSecret("hands_free_bg", handsFreeBg.toString())
+                                vault.putSecret("auto_answer_calls", autoAnswerCalls.toString())
+                                ContextCompat.startForegroundService(ctx, Intent(ctx, StarkRelayService::class.java))
+                                delay(900L)
+                                processActive = false
+                                processLabel = "IDLE // SYSTEM STANDBY"
+                            }
+                        }, modifier = Modifier.fillMaxWidth()) { Text("Apply Interconnectivity & Sync Mesh") }
+                    } else {
+                        Text("LANGUAGE: EN / HINDI / BENGALI VOICE", color = acc, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(onClick = { voiceLang = "en-IN"; scope.launch { vault.putSecret("voice_lang", "en-IN") } }) { Text("English") }
+                            OutlinedButton(onClick = { voiceLang = "hi-IN"; scope.launch { vault.putSecret("voice_lang", "hi-IN") } }) { Text("हिंदी") }
+                            OutlinedButton(onClick = { voiceLang = "bn-IN"; scope.launch { vault.putSecret("voice_lang", "bn-IN") } }) { Text("বাংলা") }
+                        }
+                        Text("VOICE PROFILES: J.A.R.V.I.S. / F.R.I.D.A.Y. / E.D.I.T.H. ($vStatus)", color = Color(0xFF69F0AE), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         OutlinedTextField(value = devId, onValueChange = { devId = it }, label = { Text("Device ID") }, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(value = pin, onValueChange = { pin = it }, label = { Text("Unlock PIN (Local Vault)") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(value = apiUrl, onValueChange = { apiUrl = it }, label = { Text("Online LLM API URL") }, modifier = Modifier.fillMaxWidth())
@@ -279,12 +415,21 @@ fun StarkHud(
                         OutlinedTextField(value = limit, onValueChange = { limit = it }, label = { Text("Screen Limit (min)") }, modifier = Modifier.fillMaxWidth())
                         Button(onClick = {
                             scope.launch {
-                                vault.putSecret("device_id", devId.trim()); vault.putSecret("device_pin", pin.trim())
-                                vault.putSecret("known_devices", known.trim()); vault.putSecret("api_url", apiUrl.trim())
-                                vault.putSecret("api_key", apiKey.trim()); vault.putSecret("model_name", model.trim())
-                                vault.putSecret("relay_topic", topic.trim()); vault.putSecret("relay_token", token.trim())
+                                processActive = true
+                                processLabel = "VAULT // SAVING & STARTING SERVICE"
+                                vault.putSecret("device_id", devId.trim())
+                                vault.putSecret("device_pin", pin.trim())
+                                vault.putSecret("known_devices", known.trim())
+                                vault.putSecret("api_url", apiUrl.trim())
+                                vault.putSecret("api_key", apiKey.trim())
+                                vault.putSecret("model_name", model.trim())
+                                vault.putSecret("relay_topic", topic.trim())
+                                vault.putSecret("relay_token", token.trim())
                                 vault.putSecret("screen_limit_min", limit.trim().ifBlank { "45" })
                                 ContextCompat.startForegroundService(ctx, Intent(ctx, StarkRelayService::class.java))
+                                delay(900L)
+                                processActive = false
+                                processLabel = "IDLE // SYSTEM STANDBY"
                                 activeTab = "hud"
                             }
                         }, modifier = Modifier.fillMaxWidth()) { Text("Save Vault & Start Background Service") }
