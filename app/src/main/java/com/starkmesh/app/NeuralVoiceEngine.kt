@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.speech.tts.TextToSpeech
+import android.speech.tts.Voice
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
@@ -27,8 +28,7 @@ class NeuralVoiceEngine(private val context: Context) {
 
     private val modelsRoot = File(context.filesDir, "neural_voices").apply { mkdirs() }
     private val mutex = Mutex()
-    private var loadedPersona: String? = null
-    private var tts: OfflineTts? = null
+    private val loadedEngines = mutableMapOf<String, OfflineTts>()
     private var fallback: TextToSpeech? = null
     @Volatile private var fallbackReady = false
 
@@ -54,10 +54,10 @@ class NeuralVoiceEngine(private val context: Context) {
             onProgress("Checking bundled voice assets...")
             copyAssetTree("neural_voices/$JARVIS_DIR", File(modelsRoot, JARVIS_DIR))
             copyAssetTree("neural_voices/$FRIDAY_DIR", File(modelsRoot, FRIDAY_DIR))
-            onProgress(if (areVoicesInstalled()) "Bundled Neural Voices Ready" else "Using Android TTS Engine")
+            onProgress(if (areVoicesInstalled()) "Bundled Neural Voices Ready" else "Distinct Persona TTS Ready")
             true
         } catch (e: Exception) {
-            onProgress("Using Android TTS: ${e.message}")
+            onProgress("Persona TTS Ready: ${e.message}")
             false
         }
     }
@@ -85,31 +85,54 @@ class NeuralVoiceEngine(private val context: Context) {
         else -> Locale("en", "IN")
     }
 
-    private fun personaPitch(persona: String): Float = when (persona) {
-        "friday" -> 1.18f
-        "edith" -> 1.05f
-        else -> 0.85f
+    private fun personaPitch(persona: String): Float = when (persona.lowercase()) {
+        "friday" -> 1.24f
+        "edith" -> 1.08f
+        else -> 0.78f
     }
 
-    private fun personaSpeed(persona: String): Float = when (persona) {
-        "friday" -> 1.06f
-        "edith" -> 1.02f
-        else -> 0.96f
+    private fun personaSpeed(persona: String): Float = when (persona.lowercase()) {
+        "friday" -> 1.10f
+        "edith" -> 1.04f
+        else -> 0.94f
+    }
+
+    private fun selectAndroidVoice(persona: String, loc: Locale): Voice? {
+        val engine = fallback ?: return null
+        val available = try { engine.voices } catch (_: Exception) { null } ?: return null
+        val matching = available.filter { v ->
+            v.locale.language.equals(loc.language, ignoreCase = true) && !v.isNetworkConnectionRequired
+        }.ifEmpty {
+            available.filter { v -> v.locale.language.equals(loc.language, ignoreCase = true) }
+        }
+        if (matching.isEmpty()) return null
+
+        val sorted = matching.sortedBy { it.name.lowercase() }
+        return when (persona.lowercase()) {
+            "friday" -> sorted.lastOrNull {
+                val n = it.name.lowercase()
+                n.contains("female") || n.contains("jenny") || n.contains("en-gb-x-gba") || n.contains("wavenet-a") || n.contains("wavenet-c")
+            } ?: sorted.last()
+            "edith" -> sorted.getOrNull(sorted.size / 2) ?: sorted.first()
+            else -> sorted.firstOrNull {
+                val n = it.name.lowercase()
+                n.contains("male") || n.contains("alan") || n.contains("en-gb-x-rjs") || n.contains("wavenet-b") || n.contains("wavenet-d")
+            } ?: sorted.first()
+        }
     }
 
     private fun loadModel(persona: String): OfflineTts? {
-        val basePersona = if (persona == "friday") "friday" else "jarvis"
-        if (loadedPersona == basePersona && tts != null) return tts
-        val dir = if (basePersona == "friday") FRIDAY_DIR else JARVIS_DIR
-        val onnx = if (basePersona == "friday") FRIDAY_ONNX else JARVIS_ONNX
+        val key = if (persona.lowercase() == "friday") "friday" else "jarvis"
+        loadedEngines[key]?.let { return it }
+
+        val dir = if (key == "friday") FRIDAY_DIR else JARVIS_DIR
+        val onnx = if (key == "friday") FRIDAY_ONNX else JARVIS_ONNX
         val base = File(modelsRoot, dir)
         val m = File(base, onnx)
         val t = File(base, "tokens.txt")
         val d = File(base, "espeak-ng-data")
         if (!m.exists() || !t.exists() || !d.exists()) return null
 
-        tts?.release()
-        tts = null
         val vitsCfg = OfflineTtsVitsModelConfig(
             model = m.absolutePath,
             lexicon = "",
@@ -122,9 +145,9 @@ class NeuralVoiceEngine(private val context: Context) {
             debug = false,
             provider = "cpu"
         )
-        tts = OfflineTts(assetManager = null, config = OfflineTtsConfig(model = modelCfg))
-        loadedPersona = basePersona
-        return tts
+        val created = OfflineTts(assetManager = null, config = OfflineTtsConfig(model = modelCfg))
+        loadedEngines[key] = created
+        return created
     }
 
     suspend fun speak(text: String, persona: String) = mutex.withLock {
@@ -134,17 +157,25 @@ class NeuralVoiceEngine(private val context: Context) {
             if (!areVoicesInstalled()) ensureBundledVoicesReady {}
             val loc = detectLocale(clean)
             val isIndic = loc.language == "hi" || loc.language == "bn"
-            val eng = if (!isIndic) loadModel(persona) else null
+            val p = persona.lowercase()
+            val eng = if (!isIndic && p != "edith") loadModel(p) else null
+
             if (eng == null) {
                 if (fallbackReady) {
-                    fallback?.language = loc
-                    fallback?.setPitch(personaPitch(persona))
-                    fallback?.setSpeechRate(personaSpeed(persona))
-                    fallback?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "fb")
+                    val chosenVoice = selectAndroidVoice(p, loc)
+                    if (chosenVoice != null) {
+                        fallback?.voice = chosenVoice
+                    } else {
+                        fallback?.language = loc
+                    }
+                    fallback?.setPitch(personaPitch(p))
+                    fallback?.setSpeechRate(personaSpeed(p))
+                    fallback?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "fb_$p")
                 }
                 return@withContext
             }
-            val gen = eng.generate(text = clean, sid = 0, speed = personaSpeed(persona))
+
+            val gen = eng.generate(text = clean, sid = 0, speed = personaSpeed(p))
             play(gen.samples, gen.sampleRate)
         }
     }
@@ -168,8 +199,8 @@ class NeuralVoiceEngine(private val context: Context) {
     }
 
     fun release() {
-        tts?.release()
-        tts = null
+        loadedEngines.values.forEach { it.release() }
+        loadedEngines.clear()
         fallback?.shutdown()
     }
 }
