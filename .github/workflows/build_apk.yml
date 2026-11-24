@@ -14,10 +14,20 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - name: Build Debug APK
+      - name: Generate Offline Wake-Word Assets & Sherpa-ONNX AAR
         run: |
+          pip install --break-system-packages "sherpa-onnx==1.12.31" sentencepiece pypinyin || pip install "sherpa-onnx==1.12.31" sentencepiece pypinyin
           mkdir -p app/libs app/src/main/assets/kws
-          echo "Ready"
+          curl -fSL -o app/libs/sherpa-onnx-1.12.31.aar https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.31/sherpa-onnx-1.12.31.aar
+          curl -fSL -o kws.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2
+          tar -xjf kws.tar.bz2
+          KWS_DIR="sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
+          cp "$KWS_DIR"/encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx app/src/main/assets/kws/
+          cp "$KWS_DIR"/decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx app/src/main/assets/kws/
+          cp "$KWS_DIR"/joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx app/src/main/assets/kws/
+          cp "$KWS_DIR"/tokens.txt app/src/main/assets/kws/
+          printf "HEY JARVIS\nHEY FRIDAY\n" > keywords_raw.txt
+          sherpa-onnx-cli text2token --tokens "$KWS_DIR/tokens.txt" --tokens-type bpe --bpe-model "$KWS_DIR/bpe.model" keywords_raw.txt app/src/main/assets/kws/keywords.txt
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.10.2
