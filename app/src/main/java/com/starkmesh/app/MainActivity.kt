@@ -105,9 +105,13 @@ fun StarkHud(
     var devId by remember { mutableStateOf("vivo_v15_pro") }
     var pin by remember { mutableStateOf("") }
     var known by remember { mutableStateOf("vivo_v15_pro, oppo_a16e, raspberry_pi_5") }
-    var apiUrl by remember { mutableStateOf("") }
+    var apiUrl by remember { mutableStateOf("https://openrouter.ai/api/v1/chat/completions") }
+    var backupApiUrl by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
-    var model by remember { mutableStateOf("") }
+    var backupApiKey by remember { mutableStateOf("") }
+    var model by remember { mutableStateOf("deepseek/deepseek-v4.1-flash-abliterated, z-ai/glm-5.3-flash") }
+    var visionModel by remember { mutableStateOf("qwen/qwen3-vl-235b-a22b-instruct") }
+    var councilMode by remember { mutableStateOf(false) }
     var topic by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
     var limit by remember { mutableStateOf("45") }
@@ -228,9 +232,13 @@ fun StarkHud(
         devId = vault.getSecret("device_id", "vivo_v15_pro")
         pin = vault.getSecret("device_pin", "")
         known = vault.getSecret("known_devices", "vivo_v15_pro, oppo_a16e, raspberry_pi_5")
-        apiUrl = vault.getSecret("api_url", "")
+        apiUrl = vault.getSecret("api_url", "https://openrouter.ai/api/v1/chat/completions")
+        backupApiUrl = vault.getSecret("backup_api_url", "")
         apiKey = vault.getSecret("api_key", "")
-        model = vault.getSecret("model_name", "")
+        backupApiKey = vault.getSecret("backup_api_key", "")
+        model = vault.getSecret("model_name", "deepseek/deepseek-v4.1-flash-abliterated, z-ai/glm-5.3-flash")
+        visionModel = vault.getSecret("vision_model_name", "qwen/qwen3-vl-235b-a22b-instruct")
+        councilMode = vault.getSecret("council_mode", "false") == "true" 
         topic = vault.getSecret("relay_topic", "")
         token = vault.getSecret("relay_token", "")
         limit = vault.getSecret("screen_limit_min", "45")
@@ -411,7 +419,15 @@ fun StarkHud(
                         OutlinedTextField(value = pin, onValueChange = { pin = it }, label = { Text("Unlock PIN (Local Vault)") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(value = apiUrl, onValueChange = { apiUrl = it }, label = { Text("Online LLM API URL") }, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("API Key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Model Name") }, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(value = backupApiKey, onValueChange = { backupApiKey = it }, label = { Text("Backup API Key (Optional)") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Abliterated / Reasoning Models (comma-separated)") }, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(value = visionModel, onValueChange = { visionModel = it }, label = { Text("Cloud Vision Model (Camera/Photo)") }, modifier = Modifier.fillMaxWidth())
+                        OutlinedButton(onClick = {
+                            councilMode = !councilMode
+                            scope.launch { vault.putSecret("council_mode", councilMode.toString()) }
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (councilMode) "Multi-Model Accuracy Council: ON (Parallel Consensus)" else "Multi-Model Mode: Fast Failover Chain", color = Color(0xFF00E5FF))
+                        }
                         OutlinedTextField(value = limit, onValueChange = { limit = it }, label = { Text("Screen Limit (min)") }, modifier = Modifier.fillMaxWidth())
                         Button(onClick = {
                             scope.launch {
