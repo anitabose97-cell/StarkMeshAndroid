@@ -14,6 +14,13 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class StarkAiClient(private val vault: VaultManager) {
+    companion object {
+        const val DEFAULT_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+        const val DEFAULT_COUNCIL_MODELS =
+            "deepseek/deepseek-v4.1-flash-abliterated, z-ai/glm-5.3-flash, google/gemma-4-26b-a4b:free"
+        const val DEFAULT_VISION_MODEL = "qwen/qwen3-vl-235b-a22b-instruct"
+    }
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
@@ -75,7 +82,7 @@ class StarkAiClient(private val vault: VaultManager) {
                     ?: obj.optJSONObject("message")?.optString("content")?.takeIf { it.isNotBlank() }
                     ?: obj.optString("response").takeIf { it.isNotBlank() }
                 if (text != null) Result.success(text.trim())
-                else Result.failure(IllegalStateException("$modelId returned empty content"))
+                else Result.failure(IllegalStateException("$modelId empty"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -84,38 +91,37 @@ class StarkAiClient(private val vault: VaultManager) {
 
     suspend fun ask(prompt: String, persona: String, imageBase64: String? = null): String =
         withContext(Dispatchers.IO) {
-            val primaryUrl = vault.getSecret("api_url", "https://openrouter.ai/api/v1/chat/completions").trim()
-                .ifBlank { "https://openrouter.ai/api/v1/chat/completions" }
+            val primaryUrl = vault.getSecret("api_url", DEFAULT_API_URL).trim().ifBlank { DEFAULT_API_URL }
             val backupUrl = vault.getSecret("backup_api_url", "").trim()
             val apiKey = vault.getSecret("api_key", "").trim()
             val backupApiKey = vault.getSecret("backup_api_key", apiKey).trim().ifBlank { apiKey }
-            val rawModels = vault.getSecret("model_name", "deepseek/deepseek-v4.1-flash-abliterated").trim()
-            val visionModel = vault.getSecret("vision_model_name", "").trim()
-            val councilMode = vault.getSecret("council_mode", "false") == "true"
+            val rawModels = vault.getSecret("model_name", DEFAULT_COUNCIL_MODELS).trim().ifBlank { DEFAULT_COUNCIL_MODELS }
+            val visionModel = vault.getSecret("vision_model_name", DEFAULT_VISION_MODEL).trim().ifBlank { DEFAULT_VISION_MODEL }
+            val councilMode = vault.getSecret("council_mode", "true") == "true"
             val deviceId = vault.getSecret("device_id", "peer_node").trim()
+            val memories = JarvisMemoryAndControl.getMemoryList(vault)
 
             if (apiKey.isBlank() && backupApiKey.isBlank()) {
-                return@withContext "[$deviceId] Add your Cloud API Key in Settings > Vault & Models."
+                return@withContext "[$deviceId] Multi-model council is pre-loaded. Paste your Cloud API Key once in Settings > Vault & Models to activate online consciousness."
             }
 
-            val modelList = rawModels.split(",")
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-                .ifEmpty { listOf("deepseek/deepseek-v4.1-flash-abliterated") }
-
-            val activeModels = if (!imageBase64.isNullOrBlank() && visionModel.isNotBlank()) {
+            val modelList = rawModels.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            val activeModels = if (!imageBase64.isNullOrBlank()) {
                 (listOf(visionModel) + modelList).distinct()
             } else {
                 modelList
             }
 
+            val memBlock = if (memories.isNotEmpty()) {
+                "\nUser preferences & long-term memory:\n- " + memories.joinToString("\n- ")
+            } else ""
+
             val sysPrompt = when (persona.lowercase()) {
-                "friday" -> "You are F.R.I.D.A.Y., an interconnected peer AI node ($deviceId). Be sharp, direct, and fluent in English, Hindi, and Bengali."
-                "edith" -> "You are E.D.I.T.H., an analytical peer AI node ($deviceId). Be concise, accurate, and fluent in English, Hindi, and Bengali."
-                else -> "You are J.A.R.V.I.S., a composed, high-precision peer AI node ($deviceId). Be concise, accurate, and fluent in English, Hindi, and Bengali."
+                "friday" -> "You are F.R.I.D.A.Y., an interconnected peer AI consciousness ($deviceId). Be sharp, direct, and fluent in English, Hindi, and Bengali.$memBlock"
+                "edith" -> "You are E.D.I.T.H., an analytical tactical AI consciousness ($deviceId). Be concise, accurate, and fluent in English, Hindi, and Bengali.$memBlock"
+                else -> "You are J.A.R.V.I.S., a composed, high-precision peer AI consciousness ($deviceId). Be concise, accurate, and fluent in English, Hindi, and Bengali.$memBlock"
             }
 
-            // Multi-Model Consensus Mode (queries up to 3 models in parallel for higher accuracy)
             if (councilMode && activeModels.size > 1 && imageBase64.isNullOrBlank()) {
                 val topModels = activeModels.take(3)
                 val results = coroutineScope {
@@ -126,14 +132,13 @@ class StarkAiClient(private val vault: VaultManager) {
                 val successes = results.mapNotNull { (m, res) -> res.getOrNull()?.let { m to it } }
                 if (successes.size >= 2) {
                     val combined = successes.joinToString("\n\n") { (m, ans) -> "[$m]: $ans" }
-                    val synthPrompt = "Synthesize one concise, highly accurate final answer from these ${successes.size} model outputs. Resolve any conflicts:\n\n$combined"
+                    val synthPrompt = "Synthesize one concise, highly accurate final response from these ${successes.size} model outputs:\n\n$combined"
                     val merged = querySingleModel(primaryUrl, apiKey, topModels.first(), sysPrompt, synthPrompt, null)
                     if (merged.isSuccess) return@withContext merged.getOrThrow()
                 }
                 if (successes.isNotEmpty()) return@withContext successes.first().second
             }
 
-            // Fast Ordered Failover Across All Listed Models & Endpoints
             val routes = buildList {
                 for (m in activeModels) add(Triple(primaryUrl, apiKey, m))
                 if (backupUrl.isNotBlank()) {
@@ -147,7 +152,6 @@ class StarkAiClient(private val vault: VaultManager) {
                 if (res.isSuccess) return@withContext res.getOrThrow()
                 lastErr = res.exceptionOrNull()?.message ?: "Request failed"
             }
-
-            "[$deviceId] All cloud models failed ($lastErr). Check API key, endpoint URL, or model IDs in Settings."
+            "[$deviceId] Cloud council unreachable ($lastErr)."
         }
 }

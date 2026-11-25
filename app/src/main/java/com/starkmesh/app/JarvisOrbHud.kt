@@ -30,8 +30,8 @@ import kotlin.math.*
 
 data class SatelliteTelemetry(
     val name: String = "ISS (ZARYA)",
-    val lat: Double = 0.0,
-    val lon: Double = 0.0,
+    val lat: Double = 22.98,
+    val lon: Double = 88.37,
     val altKm: Double = 408.0,
     val velKmh: Double = 27600.0,
     val visibility: String = "SYNCING",
@@ -41,7 +41,9 @@ data class SatelliteTelemetry(
 @Composable
 fun rememberSatelliteTelemetry(): SatelliteTelemetry {
     var sat by remember { mutableStateOf(SatelliteTelemetry()) }
-    val http = remember { OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build() }
+    val http = remember {
+        OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).build()
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -53,8 +55,8 @@ fun rememberSatelliteTelemetry(): SatelliteTelemetry {
                         val j = JSONObject(r.body?.string() ?: "{}")
                         SatelliteTelemetry(
                             name = "ISS-25544",
-                            lat = j.optDouble("latitude", 0.0),
-                            lon = j.optDouble("longitude", 0.0),
+                            lat = j.optDouble("latitude", 22.98),
+                            lon = j.optDouble("longitude", 88.37),
                             altKm = j.optDouble("altitude", 408.0),
                             velKmh = j.optDouble("velocity", 27600.0),
                             visibility = j.optString("visibility", "DAYLIGHT").uppercase(),
@@ -66,7 +68,7 @@ fun rememberSatelliteTelemetry(): SatelliteTelemetry {
                     sat.copy(
                         lat = 51.6 * sin(t / 880.0),
                         lon = ((t * 0.065) % 360.0) - 180.0,
-                        visibility = "OFFLINE EPHEM.",
+                        visibility = "EPHEMERIS",
                         online = false
                     )
                 }
@@ -82,104 +84,146 @@ fun JarvisHologramOrb(
     persona: String,
     isActive: Boolean,
     sat: SatelliteTelemetry,
+    weatherSummary: String,
     modifier: Modifier = Modifier
 ) {
-    val primaryColor = if (persona == "friday") Color(0xFFFF5E8E) else Color(0xFFFFB300)
-    val secondaryColor = if (persona == "friday") Color(0xFF00E5FF) else Color(0xFFFF6F00)
+    val primaryColor = when (persona.lowercase()) {
+        "friday" -> Color(0xFFFF4081)
+        "edith" -> Color(0xFF00E676)
+        else -> Color(0xFFFFB300)
+    }
+    val secondaryColor = when (persona.lowercase()) {
+        "friday" -> Color(0xFF00E5FF)
+        "edith" -> Color(0xFF69F0AE)
+        else -> Color(0xFF00E5FF)
+    }
 
-    val inf = rememberInfiniteTransition(label = "orb")
+    val inf = rememberInfiniteTransition(label = "infiniteOrb")
     val spinDeg by inf.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = if (isActive) 4500 else 11000, easing = LinearEasing)
-        ),
+        animationSpec = infiniteRepeatable(tween(if (isActive) 3800 else 9500, easing = LinearEasing)),
         label = "spin"
     )
+    val counterSpin by inf.animateFloat(
+        initialValue = 360f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(tween(if (isActive) 5200 else 14000, easing = LinearEasing)),
+        label = "counterSpin"
+    )
     val pulse by inf.animateFloat(
-        initialValue = 0.92f,
-        targetValue = if (isActive) 1.10f else 1.02f,
+        initialValue = 0.90f,
+        targetValue = if (isActive) 1.12f else 1.03f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = if (isActive) 550 else 1600, easing = FastOutSlowInEasing),
+            tween(if (isActive) 480 else 1500, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "pulse"
     )
 
-    val spherePoints = remember {
-        val count = 130
+    // 320 multi-shell Fibonacci lattice particles for ultra-dense Age of Ultron core
+    val particleShells = remember {
+        val count = 320
         val golden = PI * (3.0 - sqrt(5.0))
         List(count) { i ->
-            val y = 1.0 - (i / (count - 1).toDouble()) * 2.0
-            val r = sqrt(max(0.0, 1.0 - y * y))
+            val shell = when {
+                i < 160 -> 1.0
+                i < 260 -> 0.68
+                else -> 1.24
+            }
+            val idx = i % 160
+            val y = 1.0 - (idx / 159.0) * 2.0
+            val r = sqrt(max(0.0, 1.0 - y * y)) * shell
             val theta = golden * i
-            Triple(cos(theta) * r, y, sin(theta) * r)
+            Triple(cos(theta) * r, y * shell, sin(theta) * r)
         }
     }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, primaryColor.copy(alpha = 0.65f), RoundedCornerShape(14.dp))
-            .background(Color(0xFF09121E), RoundedCornerShape(14.dp))
+            .border(1.5.dp, primaryColor.copy(alpha = 0.75f), RoundedCornerShape(16.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(primaryColor.copy(alpha = 0.14f), Color(0xFF08111E), secondaryColor.copy(alpha = 0.10f))
+                ),
+                RoundedCornerShape(16.dp)
+            )
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Canvas(modifier = Modifier.size(116.dp)) {
+        Canvas(modifier = Modifier.size(134.dp)) {
             val cx = size.width / 2f
             val cy = size.height / 2f
-            val baseR = (size.minDimension / 2.35f) * pulse
+            val baseR = (size.minDimension / 2.55f) * pulse
             val radY = Math.toRadians(spinDeg.toDouble())
-            val radX = Math.toRadians((spinDeg * 0.45).toDouble())
+            val radX = Math.toRadians((spinDeg * 0.42).toDouble())
+            val radCounter = Math.toRadians(counterSpin.toDouble())
 
+            // Ambient volumetric glow
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(primaryColor.copy(alpha = 0.35f), Color.Transparent),
+                    colors = listOf(primaryColor.copy(alpha = 0.45f), secondaryColor.copy(alpha = 0.14f), Color.Transparent),
                     center = Offset(cx, cy),
-                    radius = baseR * 1.25f
+                    radius = baseR * 1.48f
                 ),
-                radius = baseR * 1.25f,
+                radius = baseR * 1.48f,
                 center = Offset(cx, cy)
             )
 
-            drawCircle(primaryColor.copy(alpha = 0.35f), radius = baseR * 1.08f, center = Offset(cx, cy), style = Stroke(1.5f))
-            drawCircle(secondaryColor.copy(alpha = 0.5f), radius = baseR * 0.72f, center = Offset(cx, cy), style = Stroke(1.2f))
+            // Gyroscopic HUD rings
+            drawCircle(primaryColor.copy(alpha = 0.45f), radius = baseR * 1.26f, center = Offset(cx, cy), style = Stroke(1.4f))
+            drawCircle(secondaryColor.copy(alpha = 0.45f), radius = baseR * 0.92f, center = Offset(cx, cy), style = Stroke(1.1f))
+            drawCircle(Color.White.copy(alpha = 0.35f), radius = baseR * 0.48f, center = Offset(cx, cy), style = Stroke(1.0f))
 
+            // Live ISS satellite blip orbiting outer ring
             val satAngle = Math.toRadians(sat.lon + spinDeg)
-            val sx = cx + cos(satAngle).toFloat() * (baseR * 1.08f)
-            val sy = cy + sin(satAngle).toFloat() * (baseR * 1.08f)
-            drawCircle(Color(0xFF00E5FF), radius = 4.5f, center = Offset(sx, sy))
+            drawCircle(
+                color = Color(0xFF00E5FF),
+                radius = 4.8f,
+                center = Offset(cx + cos(satAngle).toFloat() * (baseR * 1.26f), cy + sin(satAngle).toFloat() * (baseR * 1.26f))
+            )
 
-            val projected = ArrayList<Triple<Float, Float, Float>>(spherePoints.size)
-            for ((px, py, pz) in spherePoints) {
-                val x1 = px * cos(radY) - pz * sin(radY)
-                val z1 = px * sin(radY) + pz * cos(radY)
+            val projected = ArrayList<Triple<Float, Float, Float>>(particleShells.size)
+            for (i in particleShells.indices) {
+                val (px, py, pz) = particleShells[i]
+                val rot = if (i >= 160 && i < 260) radCounter else radY
+                val x1 = px * cos(rot) - pz * sin(rot)
+                val z1 = px * sin(rot) + pz * cos(rot)
                 val y2 = py * cos(radX) - z1 * sin(radX)
                 val z2 = py * sin(radX) + z1 * cos(radX)
-                val depth = ((z2 + 1.4) / 2.4).toFloat().coerceIn(0.15f, 1.0f)
+                val depth = ((z2 + 1.5) / 2.8).toFloat().coerceIn(0.12f, 1.0f)
                 projected.add(Triple(cx + (x1 * baseR).toFloat(), cy + (y2 * baseR).toFloat(), depth))
             }
 
-            for (i in 0 until projected.size step 2) {
+            // Neural synapse filaments on foreground hemisphere
+            for (i in 0 until 160 step 2) {
                 val (x1, y1, d1) = projected[i]
-                if (d1 > 0.58f) {
-                    val (x2, y2, d2) = projected[(i + 7) % projected.size]
-                    if (d2 > 0.58f) {
+                if (d1 > 0.60f) {
+                    val (x2, y2, d2) = projected[(i + 9) % 160]
+                    if (d2 > 0.60f) {
                         drawLine(
-                            color = primaryColor.copy(alpha = 0.24f * d1),
+                            color = primaryColor.copy(alpha = 0.28f * d1),
                             start = Offset(x1, y1),
                             end = Offset(x2, y2),
-                            strokeWidth = 1f
+                            strokeWidth = 1.0f
                         )
                     }
                 }
             }
 
-            for ((x, y, depth) in projected) {
+            // Render all 320 glowing particles
+            for (i in projected.indices) {
+                val (x, y, depth) = projected[i]
+                val pCol = when {
+                    i >= 260 -> secondaryColor.copy(alpha = depth * 0.85f)
+                    depth > 0.78f -> Color.White.copy(alpha = 0.92f)
+                    else -> primaryColor.copy(alpha = depth)
+                }
                 drawCircle(
-                    color = if (depth > 0.75f) Color.White.copy(alpha = 0.85f) else primaryColor.copy(alpha = depth),
-                    radius = 1.4f + depth * 2.1f,
+                    color = pCol,
+                    radius = (1.1f + depth * 1.85f),
                     center = Offset(x, y)
                 )
             }
@@ -187,28 +231,31 @@ fun JarvisHologramOrb(
 
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
-                text = if (persona == "friday") "F.R.I.D.A.Y. // NEURAL CORE" else "J.A.R.V.I.S. // NEURAL MATRIX",
+                text = when (persona.lowercase()) {
+                    "friday" -> "F.R.I.D.A.Y. // CONSCIOUSNESS"
+                    "edith" -> "E.D.I.T.H. // TACTICAL MATRIX"
+                    else -> "J.A.R.V.I.S. // NEURAL CORE"
+                },
                 color = primaryColor,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = "SAT: ${sat.name} [${sat.visibility}]",
+                text = String.format(Locale.US, "SAT: %s (%.1f°, %.1f°)", sat.name, sat.lat, sat.lon),
                 color = Color(0xFF00E5FF),
-                fontSize = 11.sp,
+                fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace
             )
             Text(
-                text = String.format(Locale.US, "LAT %.2f°  LON %.2f°", sat.lat, sat.lon),
-                color = Color(0xFFD6E8F7),
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace
+                text = weatherSummary,
+                color = Color(0xFFEAF6FF),
+                fontSize = 10.sp
             )
             Text(
-                text = String.format(Locale.US, "ALT %.0f km • %.0f km/h", sat.altKm, sat.velKmh),
-                color = Color(0xFF8FB3D9),
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace
+                text = if (JarvisScreenService.isRunning) "SCREEN LINK: LIVE" else "MIC & MESH: ARMED",
+                color = Color(0xFF69F0AE),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
             )
         }
     }
